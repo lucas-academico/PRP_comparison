@@ -7,7 +7,7 @@ Created on Wed Aug 13 12:36:34 2025
 
 import pyomo.environ as pyo
 import time
-from new_new_stochastic_dataset import get_dataset
+from dataset import get_dataset
 from exporting import export_pyomo_variables_to_excel
 
 m = pyo.ConcreteModel()
@@ -48,7 +48,7 @@ def Qp_bounds(model, p, t):
         else:
             continue
 
-def Qd_bounds(model, k, p, i, t):
+def Qd_bounds(model, p, i, v, t):
     #return (0, max(model.Qv['K1'],model.Qv['K2']))
     return (0, 10000)
 

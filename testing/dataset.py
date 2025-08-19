@@ -15,9 +15,9 @@ def get_dataset(nnodes, id_instance):
 
     
     # Sets
-    N = [f'Node{i}' for i in range(8)]
+    N = [f'Node{i}' for i in range(6)]
     F = [f'Family{i+1}' for i in range(1)]
-    P = [f'Product{i+1}' for i in range(8)]
+    P = [f'Product{i+1}' for i in range(4)]
     T = list(range(1,8))  # Time periods
     V = [f'Vehicle{i+1}' for i in range(4)]
     K = [f'K{i+1}' for i in range(2)]
@@ -34,6 +34,12 @@ def get_dataset(nnodes, id_instance):
         V_K[i] = 'K1'
     for i in V[2:]:
         V_K[i] = 'K2'
+        
+    vehicles_per_K = {k:0 for k in K}
+
+    for v, k in V_K.items():
+        vehicles_per_K[k] += 1
+
     
     Qv ={}
     Qv['K1'] = int(Qv_init*.5)
@@ -186,7 +192,7 @@ def get_dataset(nnodes, id_instance):
         'Qv': Qv, 'Vol': Vol, 'h': h, 'cvp': cvp, 'cfp': cfp, 'I_init': I_init,
         'num_veh_per_type':num_veh_per_type,
         'F': F, 'P_f':P_f , 'dist': distance_matrix, 'dist2': distance_matrix2, #'ordered_routes': ordered_routes , 
-        'eta_subsets': eta_subsets,
+        'eta_subsets': eta_subsets, 'vehicles_per_K' : vehicles_per_K
     }
 
 
