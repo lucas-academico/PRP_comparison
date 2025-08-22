@@ -10,6 +10,9 @@ import time
 from dataset import get_dataset
 from exporting import export_pyomo_variables_to_excel
 
+import itertools 
+
+
 m = pyo.ConcreteModel()
 data = get_dataset(50, 1)
 
@@ -131,12 +134,20 @@ m.MaxInventoryLimits = pyo.Constraint(m.P, m.Nt, m.T, rule=inventory_max_rule)
 #Routing constraints --------------------------------------------------------------------
 #based on Ahmed 2023
 
-# #eq 2.7
-def delivery_vehicle_rule(m, k, t):
+#eq 2.7.1
+def delivery_vehicle_rule1(m, k, t):
     
     return sum(m.q[p, i, k, t] * m.Vol[p] for p in m.P for i in m.N) <= m.Qv[k] * m.z_base['Node0',k,t]
 
-m.DeliveryRouteUsage = pyo.Constraint(m.K, m.T, rule=delivery_vehicle_rule)
+m.DeliveryRouteUsage1 = pyo.Constraint(m.K, m.T, rule=delivery_vehicle_rule1)
+
+# #eq 2.7.2
+def delivery_vehicle_rule2(m, i, k, t):
+    
+    return sum(m.q[p, i, k, t] * m.Vol[p] for p in m.P) <= m.Qv[k] * m.z[i,k,t]
+
+m.DeliveryRouteUsage2 = pyo.Constraint(m.N, m.K, m.T, rule=delivery_vehicle_rule2)
+
 
 #eq 2.8
 def edges_1_rule(m,i,k,t):
@@ -185,7 +196,7 @@ m.e_in_eta = pyo.Set(dimen=2, initialize=lambda m: [
     (idx, e) for idx, eta in enumerate(data['eta_subsets']) for e in eta
 ])                
 
-def subtour_elimination_rule(m, eta_id, e, k, t):
+def subtour_elimination_rule1(m, eta_id, e, k, t):
     eta = data['eta_subsets'][eta_id]
     lhs = m.Qv[k] * sum(m.x[i, j, k, t]
               for i in eta for j in eta if i!=j)
@@ -194,7 +205,46 @@ def subtour_elimination_rule(m, eta_id, e, k, t):
     
     return lhs <= rhs                
 
-m.SubtourElimination = pyo.Constraint(m.e_in_eta, m.K, m.T, rule=subtour_elimination_rule)
+m.SubtourElimination1 = pyo.Constraint(m.e_in_eta, m.K, m.T, rule=subtour_elimination_rule1)
+
+def subtour_elimination_rule2(m, eta_id, e, k, t):
+    eta = data['eta_subsets'][eta_id]
+    lhs = sum(m.x[i, j, k, t]
+              for i in eta for j in eta if i!=j)
+    
+    rhs = sum(m.z[i, k, t] for i in eta) - m.z[e, k, t]
+    
+    return lhs <= rhs                
+
+m.SubtourElimination2 = pyo.Constraint(m.e_in_eta, m.K, m.T, rule=subtour_elimination_rule2)
+
+
+#chatgpt implementation-------------------------------------------------
+
+# def subsets(S):
+#     for r in range(2, len(S)+1):
+#         for comb in itertools.combinations(S, r):
+#             yield comb
+
+# subsets_S = list(subsets(list(m.N.data())))
+
+# # Indexed set of subsets
+# m.Subsets = pyo.Set(initialize=range(len(subsets_S)))
+
+# # Map subset index → nodes
+# subset_map = {k: subsets_S[k] for k in m.Subsets}
+
+# # Constraint
+# def subset_rule(m, s, k, t):
+#     S = subset_map[s]
+#     lhs = m.Qv[k] * sum(m.x[i, j, k, t]
+#                    for (i,j) in m.node_pairs if i in S and j in S)
+        
+#     # Right-hand side: sum_{i in S}(Q*z[i,t] - q[i,t])
+#     rhs = sum(m.Qv[k] * m.z[i,k,t] - sum(m.q[p,i,k,t] for p in m.P) for i in S)
+#     return lhs <= rhs
+
+# m.SubsetConstr = pyo.Constraint(m.Subsets, m.K, m.T,  rule=subset_rule)
 
 # m.hom_fleet_breaking = pyo.ConstraintList()    
 # def hom_fleet_breaking_rule(m, t):
@@ -232,7 +282,7 @@ results = opt.solve(m,  warmstart = True, tee=True)
 prod_cost = sum(m.x_p[f, t].value * m.cfp[f] for f in m.F for t in m.T) + sum(m.p[p, t].value * m.cvp[p] for p in m.P for t in m.T)
 inv_cost = sum(m.I[p, i, t].value * m.h[p, i] for p in m.P for i in m.N0|m.N for t in m.T)
 distr_cost = sum(m.x[i, j, k, t].value * m.dist[i, j] for (i,j) in m.node_pairs for k in m.K for t in m.T)
-total_cost =prod_cost  + distr_cost + inv_cost
+total_cost = prod_cost  + distr_cost + inv_cost
 
 print("-----------------------------------")
 print("-----------------------------------")
@@ -248,4 +298,4 @@ print("-----------------------------------")
 print(f"total cost {total_cost}")
 
 
-#export_pyomo_variables_to_excel(m, filename='4index_output.xlsx')
+export_pyomo_variables_to_excel(m, filename='3index_output.xlsx')

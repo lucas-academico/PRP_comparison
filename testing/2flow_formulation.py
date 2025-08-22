@@ -227,7 +227,7 @@ print(f"total cost {total_cost}")
 
 
   
-export_pyomo_variables_to_excel(m, '2flow', filename='2flow_output.xlsx')
+export_pyomo_variables_to_excel(m, kind_model='2flow', filename='2flow_output.xlsx')
 
 
 

@@ -15,7 +15,7 @@ def get_dataset(nnodes, id_instance):
 
     
     # Sets
-    N = [f'Node{i}' for i in range(6)]
+    N = [f'Node{i}' for i in range(7)]
     F = [f'Family{i+1}' for i in range(1)]
     P = [f'Product{i+1}' for i in range(4)]
     T = list(range(1,8))  # Time periods
