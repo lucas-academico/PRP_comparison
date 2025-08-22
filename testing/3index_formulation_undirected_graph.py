@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Aug 22 15:38:05 2025
+Created on Fri Aug 22 16:09:55 2025
 
 @author: BANGHO
 """
@@ -9,6 +9,9 @@ import pyomo.environ as pyo
 import time
 from dataset import get_dataset
 from exporting import export_pyomo_variables_to_excel
+
+import itertools 
+
 
 m = pyo.ConcreteModel()
 data = get_dataset(50, 1)
@@ -21,7 +24,7 @@ m.P = pyo.Set(initialize=data['P'])  # Products
 m.F = pyo.Set(initialize=data['F'])  # Families
 m.T = pyo.Set(initialize=data['T'])  # Time periods
 m.K = pyo.Set(initialize=data['K'])  # Heterogeneous Fleet (type of vehicle)
-m.V = pyo.Set(initialize=data['V'])  # Vehicles
+#m.V = pyo.Set(initialize=data['V'])  # Vehicles
 m.node_pairs = pyo.Set(within=m.Nt * m.Nt, initialize=[(i, j) for i in m.Nt for j in m.Nt if i < j])
 m.V_K = pyo.Set(dimen=2, initialize=[(v, k) for v, k in data['V_K'].items()])
 
@@ -40,6 +43,8 @@ m.h = pyo.Param(m.P, m.Nt, initialize=data['h'], within=pyo.NonNegativeReals)  #
 m.cvp = pyo.Param(m.P, initialize=data['cvp'], within=pyo.NonNegativeReals)  # Variable cost
 m.cfp = pyo.Param(m.F, initialize=data['cfp'], within=pyo.NonNegativeReals)  # Fixed cost
 
+m.vehicles_per_K = pyo.Param(m.K, initialize=data["vehicles_per_K"], within=pyo.NonNegativeIntegers)
+
 #Bounds_function------------------------------------------------------------------------------------------------------------
 def Qp_bounds(model, p, t):
     for f in data['F']:
@@ -48,9 +53,9 @@ def Qp_bounds(model, p, t):
         else:
             continue
 
-def Qd_bounds(model, p, i, v, t):
-    #return (0, max(model.Qv['K1'],model.Qv['K2']))
-    return (0, 10000)
+def Qd_bounds(model, p, i, k, t):
+    return (0, model.Qv[k])
+    #return (0, 10000)
 
 def I_bound(model, p, i, t):
     return (data['I_min'][p,i],data['I_max'][i]/data['Vol'][p])
@@ -62,18 +67,19 @@ def dif_nodes(m):
 m.x_p = pyo.Var(m.F, m.T, within=pyo.Binary)  # Production binary
 m.p = pyo.Var(m.P, m.T, bounds=Qp_bounds, within=pyo.NonNegativeReals)  # Production quantity
 m.I = pyo.Var(m.P, m.Nt, m.T, bounds=I_bound, within= pyo.NonNegativeReals)  # Inventory level
-m.q = pyo.Var(m.P, m.N, m.V, m.T, bounds=Qd_bounds, within=pyo.NonNegativeReals)  # Delivery quantity
+m.q = pyo.Var(m.P, m.N, m.K, m.T, bounds=Qd_bounds, within=pyo.NonNegativeReals)  # Delivery quantity
 # m.e = Var(m.P, m.N, m.T, m.S, within=NonNegativeReals)  # Unmet demand
-m.z = pyo.Var(m.Nt, m.V, m.T, within = pyo.Binary)
-m.x = pyo.Var(m.node_pairs, m.V, m.T, within = pyo.NonNegativeIntegers, bounds=(0,2))
+m.z_base = pyo.Var(m.N0, m.K, m.T, within = pyo.NonNegativeIntegers)
+m.z = pyo.Var(m.N, m.K, m.T, within = pyo.Binary)
+m.x = pyo.Var(m.node_pairs, m.K, m.T, within = pyo.NonNegativeIntegers, bounds=(0,2))
 
-def regular_edge_limit_rule(m, i, j, v, t):
+def regular_edge_limit_rule(m, i, j, k, t):
     if i != 'Node0':
-        return m.x[i,j,v,t] <= 1
+        return m.x[i,j,k,t] <= 1
     else:
         return pyo.Constraint.Skip
 
-m.RegularEdgeLimit = pyo.Constraint(m.node_pairs, m.V, m.T, rule=regular_edge_limit_rule)
+m.RegularEdgeLimit = pyo.Constraint(m.node_pairs, m.K, m.T, rule=regular_edge_limit_rule)
 
 #Contraints------------------------------------------------------------------------------------------------------------    
 
@@ -91,14 +97,14 @@ def inventory_balance_manufacturing_rule(m, p, t):
             m.I[p, 'Node0', t] ==
             m.I_init[p, 'Node0'] +
             m.p[p, t] -
-            sum(m.q[p, j, v, t] for v in m.V for j in m.N)
+            sum(m.q[p, j, k, t] for k in m.K for j in m.N)
         )
     else:
         return (
             m.I[p, 'Node0', t] ==
             m.I[p, 'Node0', t-1] +
             m.p[p, t] -
-            sum(m.q[p, i, v, t] for v in m.V for i in m.N)
+            sum(m.q[p, i, k, t] for k in m.K for i in m.N)
         )
     
 m.InventoryBalanceManufacturing = pyo.Constraint(m.P, m.T, rule=inventory_balance_manufacturing_rule)
@@ -109,14 +115,14 @@ def inventory_balance_end_nodes_rule(m, p, i, t):
         return (
             m.I[p, i, t] ==
             m.I_init[p, i] +
-            sum(m.q[p, i, v, t] for v in m.V) - 
+            sum(m.q[p, i, k, t] for k in m.K) - 
             m.d[p, i, t]
             )
 
     return (
         m.I[p, i, t] ==
         m.I[p, i, t-1] +
-        sum(m.q[p, i, v, t] for v in m.V) -
+        sum(m.q[p, i, k, t] for k in m.K) -
         m.d[p, i, t]
         )
 
@@ -136,40 +142,59 @@ m.MaxInventoryLimits = pyo.Constraint(m.P, m.Nt, m.T, rule=inventory_max_rule)
 #Routing constraints --------------------------------------------------------------------
 #based on Ahmed 2023
 
-# #eq 1.7
-def delivery_vehicle_rule(m, v, k, t):
+#eq 2.7.1
+def delivery_vehicle_rule1(m, k, t):
     
-    return sum(m.q[p, i, v, t] * m.Vol[p] for p in m.P for i in m.N) <= m.Qv[k] * m.z['Node0',v,t]
+    return sum(m.q[p, i, k, t] * m.Vol[p] for p in m.P for i in m.N) <= m.Qv[k] * m.z_base['Node0',k,t]
 
-m.DeliveryRouteUsage = pyo.Constraint(m.V_K, m.T, rule=delivery_vehicle_rule)
+m.DeliveryRouteUsage1 = pyo.Constraint(m.K, m.T, rule=delivery_vehicle_rule1)
 
-# #eq 1.8
-def max_visits_per_node_rule(m, i, t):
-    return sum(m.z[i,v,t] for v in m.V) <= 1
-
-m.max_visits_per_node = pyo.Constraint(m.N, m.T, rule=max_visits_per_node_rule)
-
-# #eq 1.9
-def visit_or_not_rule(m,v,k,i,t):
+# #eq 2.7.2
+def delivery_vehicle_rule2(m, i, k, t):
     
-    #return sum(m.q[p, i, v, t] * m.Vol[p] for p in m.P) <= min(m.Qv[k],m.I_max[i], sum(m.d[p, i, l] for p in m.P for l in m.T if l>=t)) * m.z[i,v,t]
-    return sum(m.q[p, i, v, t] * m.Vol[p] for p in m.P) <= m.Qv[k] * m.z[i,v,t]
+    return sum(m.q[p, i, k, t] * m.Vol[p] for p in m.P) <= m.Qv[k] * m.z[i,k,t]
 
-m.visit_or_not = pyo.Constraint(m.V_K, m.N, m.T, rule=visit_or_not_rule)
+m.DeliveryRouteUsage2 = pyo.Constraint(m.N, m.K, m.T, rule=delivery_vehicle_rule2)
 
-# #eq 1.10
-def edges_1_rule(m,i,v,t):
+
+#eq 2.8
+def edges_1_rule(m,i,k,t):
+    # if i!= 'Node0':
+        # return sum(m.x[i,j,k,t]+m.x[j,i,k,t] for j in m.Nt if i != j) == 2 * m.z[i,k,t]
+    # else:
+        return sum(m.x[j,i,k,t] for j in m.Nt if i>j) + sum(m.x[i,j,k,t] for j in m.Nt if i<j) == 2 * m.z[i,k,t]
     
-    return sum(m.x[j,i,v,t] for j in m.Nt if i>j) + sum(m.x[i,j,v,t] for j in m.Nt if i<j) == 2 * m.z[i,v,t]
+    # return sum(m.x[j,i,v,t] for j in m.Nt if i>j) + sum(m.x[i,j,v,t] for j in m.Nt if i<j) == 2 * m.z[i,v,t]
 
-m.edges_1 = pyo.Constraint(m.N, m.V, m.T, rule=edges_1_rule)
+m.edges_1 = pyo.Constraint(m.N, m.K, m.T, rule=edges_1_rule)
+
+def max_vehicles_rule(m,k,t):
+    return m.z_base['Node0',k,t] <= m.vehicles_per_K[k]
+
+m.max_vehicles = pyo.Constraint(m.K, m.T, rule=max_vehicles_rule)
+
+
+# # #eq 1.8
+# def max_visits_per_node_rule(m, i, t):
+#     return sum(m.z[i,v,t] for v in m.V) <= 1
+
+# m.max_visits_per_node = pyo.Constraint(m.N, m.T, rule=max_visits_per_node_rule)
+
+# # #eq 1.9
+# def visit_or_not_rule(m,v,k,i,t):
+    
+#     #return sum(m.q[p, i, v, t] * m.Vol[p] for p in m.P) <= min(m.Qv[k],m.I_max[i], sum(m.d[p, i, l] for p in m.P for l in m.T if l>=t)) * m.z[i,v,t]
+#     return sum(m.q[p, i, v, t] * m.Vol[p] for p in m.P) <= m.Qv[k] * m.z[i,v,t]
+
+# m.visit_or_not = pyo.Constraint(m.V_K, m.N, m.T, rule=visit_or_not_rule)
+
 
 # def same_in_out_rule(m,i,v,t):
 #     return sum(m.x[i, j, v, t] for j in m.Nt if i!=j) == sum(m.x[j, i, v, t] for j in m.Nt if i!=j)
 
 # m.same_in_out_rule = pyo.Constraint(m.Nt,m.V,m.T,rule=same_in_out_rule)
 
-# #it was present in previous models but it's notin Ahmed 2023
+# # #it was present in previous models but it's notin Ahmed 2023
 
 
 
@@ -181,16 +206,55 @@ m.e_in_eta = pyo.Set(dimen=2, initialize=lambda m: [
     (idx, e) for idx, eta in enumerate(data['eta_subsets']) for e in eta
 ])                
 
-def subtour_elimination_rule(m, eta_id, e, v, t):
+def subtour_elimination_rule1(m, eta_id, e, k, t):
     eta = data['eta_subsets'][eta_id]
-    lhs = sum(m.x[i, j, v, t]
+    lhs = m.Qv[k] * sum(m.x[i, j, k, t]
               for i in eta for j in eta if i<j)
     
-    rhs = sum(m.z[i, v, t] for i in eta) - m.z[e, v, t]
+    rhs = sum(m.Qv[k] * m.z[i, k, t] - sum(m.q[p, i, k, t] for p in m.P) for i in eta)
     
     return lhs <= rhs                
 
-m.SubtourElimination = pyo.Constraint(m.e_in_eta, m.V, m.T, rule=subtour_elimination_rule)
+m.SubtourElimination1 = pyo.Constraint(m.e_in_eta, m.K, m.T, rule=subtour_elimination_rule1)
+
+def subtour_elimination_rule2(m, eta_id, e, k, t):
+    eta = data['eta_subsets'][eta_id]
+    lhs = sum(m.x[i, j, k, t]
+              for i in eta for j in eta if i<j)
+    
+    rhs = sum(m.z[i, k, t] for i in eta) - m.z[e, k, t]
+    
+    return lhs <= rhs                
+
+m.SubtourElimination2 = pyo.Constraint(m.e_in_eta, m.K, m.T, rule=subtour_elimination_rule2)
+
+
+#chatgpt implementation-------------------------------------------------
+
+# def subsets(S):
+#     for r in range(2, len(S)+1):
+#         for comb in itertools.combinations(S, r):
+#             yield comb
+
+# subsets_S = list(subsets(list(m.N.data())))
+
+# # Indexed set of subsets
+# m.Subsets = pyo.Set(initialize=range(len(subsets_S)))
+
+# # Map subset index → nodes
+# subset_map = {k: subsets_S[k] for k in m.Subsets}
+
+# # Constraint
+# def subset_rule(m, s, k, t):
+#     S = subset_map[s]
+#     lhs = m.Qv[k] * sum(m.x[i, j, k, t]
+#                    for (i,j) in m.node_pairs if i in S and j in S)
+        
+#     # Right-hand side: sum_{i in S}(Q*z[i,t] - q[i,t])
+#     rhs = sum(m.Qv[k] * m.z[i,k,t] - sum(m.q[p,i,k,t] for p in m.P) for i in S)
+#     return lhs <= rhs
+
+# m.SubsetConstr = pyo.Constraint(m.Subsets, m.K, m.T,  rule=subset_rule)
 
 # m.hom_fleet_breaking = pyo.ConstraintList()    
 # def hom_fleet_breaking_rule(m, t):
@@ -211,7 +275,7 @@ def objective_function(m):
         sum(m.x_p[f, t] * m.cfp[f] for f in m.F for t in m.T) +
         sum(m.p[p, t] * m.cvp[p] for p in m.P for t in m.T) +
         sum(m.I[p, i, t] * m.h[p, i] for p in m.P for i in m.Nt for t in m.T) 
-        + sum(m.x[i, j, v, t] * m.dist[i, j] for (i,j) in m.node_pairs for v in m.V for t in m.T)
+        + sum(m.x[i, j, k, t] * m.dist[i, j] for (i,j) in m.node_pairs for k in m.K for t in m.T)
         )
 
 m.Objective = pyo.Objective(rule=objective_function, sense=pyo.minimize)
@@ -227,8 +291,8 @@ results = opt.solve(m,  warmstart = True, tee=True)
 
 prod_cost = sum(m.x_p[f, t].value * m.cfp[f] for f in m.F for t in m.T) + sum(m.p[p, t].value * m.cvp[p] for p in m.P for t in m.T)
 inv_cost = sum(m.I[p, i, t].value * m.h[p, i] for p in m.P for i in m.N0|m.N for t in m.T)
-distr_cost = sum(m.x[i, j, v, t].value * m.dist[i, j] for (i,j) in m.node_pairs for v in m.V for t in m.T)
-total_cost =prod_cost  + distr_cost + inv_cost
+distr_cost = sum(m.x[i, j, k, t].value * m.dist[i, j] for (i,j) in m.node_pairs for k in m.K for t in m.T)
+total_cost = prod_cost  + distr_cost + inv_cost
 
 print("-----------------------------------")
 print("-----------------------------------")
@@ -244,4 +308,4 @@ print("-----------------------------------")
 print(f"total cost {total_cost}")
 
 
-export_pyomo_variables_to_excel(m, filename='4index_output_undirected.xlsx')
+export_pyomo_variables_to_excel(m, filename='3index_output.xlsx')
