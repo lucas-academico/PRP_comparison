@@ -23,7 +23,6 @@ m.P = pyo.Set(initialize=data['P'])  # Products
 m.F = pyo.Set(initialize=data['F'])  # Families
 m.T = pyo.Set(initialize=data['T'])  # Time periods     
 m.K = pyo.Set(initialize=data['K'])  # Heterogeneous Fleet (type of vehicle)
-m.V = pyo.Set(initialize=data['V'])  # Vehicles
 
 
 # Parameters------------------------------------------------------------------------------------------------------------
@@ -66,7 +65,7 @@ def f_bounds(m, k, i, j, t):
     return (0,10000)
 
 # Decision variables------------------------------------------------------------------------------------------------------------
-m.x_p = pyo.Var(m.F, m.T, within=pyo.Binary)  # Production binary
+m.y = pyo.Var(m.F, m.T, within=pyo.Binary)  # Production binary
 m.p = pyo.Var(m.P, m.T, bounds=Qp_bounds, within=pyo.NonNegativeReals)  # Production quantity
 m.I = pyo.Var(m.P, m.N0|m.N, m.T, bounds=I_bound, within=pyo.NonNegativeReals)  # Inventory level
 m.q = pyo.Var(m.K, m.P, m.N, m.T, bounds=Qd_bounds, within=pyo.NonNegativeReals)  # Delivery quantity
@@ -83,7 +82,7 @@ m.dist = pyo.Param(ordered_node_pairs, initialize= lambda m, i, j: data['dist2']
 
 def production_limit_rule(m, f, t):
     
-    return sum(m.p[p, t] for p in m.P if m.P_f[f,p]) <= m.x_p[f, t] * min(m.Qm[f], sum(m.d[p, i, l] for p in m.P if m.P_f[f,p] for i in m.N for l in m.T if l>=t))
+    return sum(m.p[p, t] for p in m.P if m.P_f[f,p]) <= m.y[f, t] * min(m.Qm[f], sum(m.d[p, i, l] for p in m.P if m.P_f[f,p] for i in m.N for l in m.T if l>=t))
 
 m.ProductionLimit = pyo.Constraint(m.F, m.T, rule=production_limit_rule)
 
@@ -188,7 +187,7 @@ m.Eq8 = pyo.Constraint(m.K, m.T, rule=equation8)
 #FO ----------------------------------
 def objective_function(m):
     return (
-        sum(m.x_p[f, t] * m.cfp[f] for f in m.F for t in m.T) +
+        sum(m.y[f, t] * m.cfp[f] for f in m.F for t in m.T) +
         sum(m.p[p, t] * m.cvp[p] for p in m.P for t in m.T) +
         sum(m.I[p, i, t] * m.h[p, i] for p in m.P for i in m.N0|m.N for t in m.T) 
         +        sum(m.x[k, i, j, t] * m.dist[i, j] for k in m.K for i in m.Nt for j in m.Nt if i<j for t in m.T)
@@ -205,7 +204,7 @@ opt.options['FeasibilityTol'] = 0.01
 # Solve the model
 results = opt.solve(m,  warmstart = True, tee=True)
 
-prod_cost = sum(m.x_p[f, t].value * m.cfp[f] for f in m.F for t in m.T) + sum(m.p[p, t].value * m.cvp[p] for p in m.P for t in m.T)
+prod_cost = sum(m.y[f, t].value * m.cfp[f] for f in m.F for t in m.T) + sum(m.p[p, t].value * m.cvp[p] for p in m.P for t in m.T)
 inv_cost = sum(m.I[p, i, t].value * m.h[p, i] for p in m.P for i in m.N0|m.N for t in m.T)
 distr_cost = sum(m.x[k, i, j, t].value * m.dist[i, j] for k in m.K for i in m.Nt for j in m.Nt if i<j for t in m.T)
 total_cost =prod_cost  + distr_cost + inv_cost

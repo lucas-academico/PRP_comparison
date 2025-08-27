@@ -17,8 +17,8 @@ def get_dataset(nnodes, id_instance):
     # Sets
     N = [f'Node{i}' for i in range(7)]
     F = [f'Family{i+1}' for i in range(1)]
-    P = [f'Product{i+1}' for i in range(9)]
-    T = list(range(1,8))  # Time periods
+    P = [f'Product{i+1}' for i in range(3)]
+    T = list(range(1,6))  # Time periods
     V = [f'Vehicle{i+1}' for i in range(6)]
     K = [f'K{i+1}' for i in range(3)]
     end_nodes = N[1:]
@@ -44,9 +44,9 @@ def get_dataset(nnodes, id_instance):
 
     
     Qv ={}
-    Qv['K1'] = int(Qv_init*.5)
-    Qv['K2'] = int(Qv_init*1.5)
-    Qv['K3'] = int(Qv_init)
+    Qv['K1'] = int(Qv_init*.1)
+    Qv['K2'] = int(Qv_init*.2)
+    Qv['K3'] = int(Qv_init*.3)
     
     
     locations = {}
@@ -84,7 +84,7 @@ def get_dataset(nnodes, id_instance):
         for p in P:
             h[p,i] = ceil(random.random() *  float(ret_data.loc[ident-1,"h"]))
             for t in T:
-                d[p,i,t] = ceil(random.random() * float(ret_data.loc[ident-1,"DEM"]))
+                d[p,i,t] = ceil(random.random() * float(ret_data.loc[ident-1,"DEM"])*2)
                 
                 
     #Qv = 500

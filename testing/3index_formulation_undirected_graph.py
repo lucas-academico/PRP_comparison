@@ -26,7 +26,6 @@ m.T = pyo.Set(initialize=data['T'])  # Time periods
 m.K = pyo.Set(initialize=data['K'])  # Heterogeneous Fleet (type of vehicle)
 #m.V = pyo.Set(initialize=data['V'])  # Vehicles
 m.node_pairs = pyo.Set(within=m.Nt * m.Nt, initialize=[(i, j) for i in m.Nt for j in m.Nt if i < j])
-m.V_K = pyo.Set(dimen=2, initialize=[(v, k) for v, k in data['V_K'].items()])
 
 
 # Parameters------------------------------------------------------------------------------------------------------------
@@ -64,7 +63,7 @@ def dif_nodes(m):
     return [(i, j) for i in m.Nt for j in m.Nt if i != j]
 
 # Decision variables------------------------------------------------------------------------------------------------------------
-m.x_p = pyo.Var(m.F, m.T, within=pyo.Binary)  # Production binary
+m.y = pyo.Var(m.F, m.T, within=pyo.Binary)  # Production binary
 m.p = pyo.Var(m.P, m.T, bounds=Qp_bounds, within=pyo.NonNegativeReals)  # Production quantity
 m.I = pyo.Var(m.P, m.Nt, m.T, bounds=I_bound, within= pyo.NonNegativeReals)  # Inventory level
 m.q = pyo.Var(m.P, m.N, m.K, m.T, bounds=Qd_bounds, within=pyo.NonNegativeReals)  # Delivery quantity
@@ -85,7 +84,7 @@ m.RegularEdgeLimit = pyo.Constraint(m.node_pairs, m.K, m.T, rule=regular_edge_li
 
 def production_limit_rule(m, f, t):
     
-    return sum(m.p[p, t] for p in m.P if m.P_f[f,p]) <= m.x_p[f, t] * min(m.Qm[f], sum(m.d[p, i, l] for p in m.P if m.P_f[f,p] for i in m.N for l in m.T if l>=t))
+    return sum(m.p[p, t] for p in m.P if m.P_f[f,p]) <= m.y[f, t] * min(m.Qm[f], sum(m.d[p, i, l] for p in m.P if m.P_f[f,p] for i in m.N for l in m.T if l>=t))
 
 m.ProductionLimit = pyo.Constraint(m.F, m.T, rule=production_limit_rule)
 
@@ -149,6 +148,11 @@ def delivery_vehicle_rule1(m, k, t):
 
 m.DeliveryRouteUsage1 = pyo.Constraint(m.K, m.T, rule=delivery_vehicle_rule1)
 
+def max_visits_per_node_rule(m, i, t):
+    return sum(m.z[i,k,t] for k in m.K) <= 1
+
+m.max_visits_per_node = pyo.Constraint(m.N, m.T, rule=max_visits_per_node_rule)
+
 # #eq 2.7.2
 def delivery_vehicle_rule2(m, i, k, t):
     
@@ -159,14 +163,14 @@ m.DeliveryRouteUsage2 = pyo.Constraint(m.N, m.K, m.T, rule=delivery_vehicle_rule
 
 #eq 2.8
 def edges_1_rule(m,i,k,t):
-    # if i!= 'Node0':
-        # return sum(m.x[i,j,k,t]+m.x[j,i,k,t] for j in m.Nt if i != j) == 2 * m.z[i,k,t]
-    # else:
+    if i == 'Node0':
+        return sum(m.x['Node0',j,k,t] for j in m.Nt if 'Node0'!= j) == 2 * m.z_base[i,k,t]
+    else:
         return sum(m.x[j,i,k,t] for j in m.Nt if i>j) + sum(m.x[i,j,k,t] for j in m.Nt if i<j) == 2 * m.z[i,k,t]
     
     # return sum(m.x[j,i,v,t] for j in m.Nt if i>j) + sum(m.x[i,j,v,t] for j in m.Nt if i<j) == 2 * m.z[i,v,t]
 
-m.edges_1 = pyo.Constraint(m.N, m.K, m.T, rule=edges_1_rule)
+m.edges_1 = pyo.Constraint(m.Nt, m.K, m.T, rule=edges_1_rule)
 
 def max_vehicles_rule(m,k,t):
     return m.z_base['Node0',k,t] <= m.vehicles_per_K[k]
@@ -272,7 +276,7 @@ m.SubtourElimination2 = pyo.Constraint(m.e_in_eta, m.K, m.T, rule=subtour_elimin
 #FO ----------------------------------
 def objective_function(m):
     return (
-        sum(m.x_p[f, t] * m.cfp[f] for f in m.F for t in m.T) +
+        sum(m.y[f, t] * m.cfp[f] for f in m.F for t in m.T) +
         sum(m.p[p, t] * m.cvp[p] for p in m.P for t in m.T) +
         sum(m.I[p, i, t] * m.h[p, i] for p in m.P for i in m.Nt for t in m.T) 
         + sum(m.x[i, j, k, t] * m.dist[i, j] for (i,j) in m.node_pairs for k in m.K for t in m.T)
@@ -289,7 +293,7 @@ opt.options['FeasibilityTol'] = 0.01
 # Solve the model
 results = opt.solve(m,  warmstart = True, tee=True)  
 
-prod_cost = sum(m.x_p[f, t].value * m.cfp[f] for f in m.F for t in m.T) + sum(m.p[p, t].value * m.cvp[p] for p in m.P for t in m.T)
+prod_cost = sum(m.y[f, t].value * m.cfp[f] for f in m.F for t in m.T) + sum(m.p[p, t].value * m.cvp[p] for p in m.P for t in m.T)
 inv_cost = sum(m.I[p, i, t].value * m.h[p, i] for p in m.P for i in m.N0|m.N for t in m.T)
 distr_cost = sum(m.x[i, j, k, t].value * m.dist[i, j] for (i,j) in m.node_pairs for k in m.K for t in m.T)
 total_cost = prod_cost  + distr_cost + inv_cost
@@ -308,4 +312,4 @@ print("-----------------------------------")
 print(f"total cost {total_cost}")
 
 
-export_pyomo_variables_to_excel(m, filename='3index_output.xlsx')
+#export_pyomo_variables_to_excel(m, filename='3index_undirected_output.xlsx')

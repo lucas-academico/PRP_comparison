@@ -23,7 +23,7 @@ def export_pyomo_variables_to_excel(m, kind_model='4index', filename="pyomo_vari
     # Export each variable
     if kind_model == '2flow':    
         var_dict = {
-            "x_p": m.x_p,
+            "y": m.y,
             "q": m.q,
             "x": m.x,
             "z": m.z,
@@ -34,7 +34,7 @@ def export_pyomo_variables_to_excel(m, kind_model='4index', filename="pyomo_vari
         }
     else:
         var_dict = {
-            "x_p": m.x_p,
+            "y": m.y,
             "q": m.q,
             "x": m.x,
             "z": m.z,

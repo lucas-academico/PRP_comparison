@@ -59,7 +59,7 @@ def dif_nodes(m):
     return [(i, j) for i in m.Nt for j in m.Nt if i != j]
 
 # Decision variables------------------------------------------------------------------------------------------------------------
-m.x_p = pyo.Var(m.F, m.T, within=pyo.Binary)  # Production binary
+m.y = pyo.Var(m.F, m.T, within=pyo.Binary)  # Production binary
 m.p = pyo.Var(m.P, m.T, bounds=Qp_bounds, within=pyo.NonNegativeReals)  # Production quantity
 m.I = pyo.Var(m.P, m.Nt, m.T, bounds=I_bound, within= pyo.NonNegativeReals)  # Inventory level
 m.q = pyo.Var(m.P, m.N, m.V, m.T, bounds=Qd_bounds, within=pyo.NonNegativeReals)  # Delivery quantity
@@ -71,7 +71,7 @@ m.x = pyo.Var(m.node_pairs, m.V, m.T, within = pyo.Binary)
 
 def production_limit_rule(m, f, t):
     
-    return sum(m.p[p, t] for p in m.P if m.P_f[f,p]) <= m.x_p[f, t] * min(m.Qm[f], sum(m.d[p, i, l] for p in m.P if m.P_f[f,p] for i in m.N for l in m.T if l>=t))
+    return sum(m.p[p, t] for p in m.P if m.P_f[f,p]) <= m.y[f, t] * min(m.Qm[f], sum(m.d[p, i, l] for p in m.P if m.P_f[f,p] for i in m.N for l in m.T if l>=t))
 
 m.ProductionLimit = pyo.Constraint(m.F, m.T, rule=production_limit_rule)
 
@@ -200,7 +200,7 @@ m.SubtourElimination = pyo.Constraint(m.e_in_eta, m.V, m.T, rule=subtour_elimina
 #FO ----------------------------------
 def objective_function(m):
     return (
-        sum(m.x_p[f, t] * m.cfp[f] for f in m.F for t in m.T) +
+        sum(m.y[f, t] * m.cfp[f] for f in m.F for t in m.T) +
         sum(m.p[p, t] * m.cvp[p] for p in m.P for t in m.T) +
         sum(m.I[p, i, t] * m.h[p, i] for p in m.P for i in m.Nt for t in m.T) 
         + sum(m.x[i, j, v, t] * m.dist[i, j] for (i,j) in m.node_pairs for v in m.V for t in m.T)
@@ -217,7 +217,7 @@ opt.options['FeasibilityTol'] = 0.01
 # Solve the model
 results = opt.solve(m,  warmstart = True, tee=True)  
 
-prod_cost = sum(m.x_p[f, t].value * m.cfp[f] for f in m.F for t in m.T) + sum(m.p[p, t].value * m.cvp[p] for p in m.P for t in m.T)
+prod_cost = sum(m.y[f, t].value * m.cfp[f] for f in m.F for t in m.T) + sum(m.p[p, t].value * m.cvp[p] for p in m.P for t in m.T)
 inv_cost = sum(m.I[p, i, t].value * m.h[p, i] for p in m.P for i in m.N0|m.N for t in m.T)
 distr_cost = sum(m.x[i, j, v, t].value * m.dist[i, j] for (i,j) in m.node_pairs for v in m.V for t in m.T)
 total_cost =prod_cost  + distr_cost + inv_cost
